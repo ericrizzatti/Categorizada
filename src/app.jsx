@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Toaster, toast } from 'sonner';
 
 const API = 'http://localhost:3001/api/tecidos';
+const API_MOV = 'http://localhost:3001/api/movimentacoes';
+const API_BASE = 'http://localhost:3001/api';
+const ID_ABA = Math.random().toString(36).slice(2); // identifica esta aba para o servidor
+const ROTULO = { CADASTRO: 'Cadastro', USO: 'Uso', REPOSICAO: 'Reposição', AJUSTE: 'Ajuste', EXCLUSAO: 'Exclusão' };
+
+const dataHora = (d) =>
+  new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
 const brl = (n) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -41,6 +48,8 @@ export default function App() {
   const [soAcabando, setSoAcabando] = useState(false);
   const [modal, setModal] = useState(null); // { tipo: 'tecido' | 'uso' | 'repor', tecido? }
   const [excluindo, setExcluindo] = useState(null); // tecido aguardando confirmação
+  const [tela, setTela] = useState('estoque'); // 'estoque' | 'historico'
+  const [filtroHist, setFiltroHist] = useState(''); // cd_tecido ou '' para todos
 
   const carregar = () =>
     api()
@@ -49,6 +58,24 @@ export default function App() {
       .finally(() => setCarregando(false));
 
   useEffect(() => { carregar(); }, []);
+
+  // Avisa o servidor que esta aba está aberta (e quando fecha),
+  // para ele se encerrar sozinho quando a última aba for fechada
+  useEffect(() => {
+    const ping = () =>
+      fetch(`${API_BASE}/ping?id=${ID_ABA}`, { method: 'POST', keepalive: true }).catch(() => {});
+    const sair = () => navigator.sendBeacon(`${API_BASE}/saindo?id=${ID_ABA}`);
+
+    ping();
+    const timer = setInterval(ping, 5000);
+    window.addEventListener('pagehide', sair);
+    window.addEventListener('pageshow', ping);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('pagehide', sair);
+      window.removeEventListener('pageshow', ping);
+    };
+  }, []);
 
   const lista = useMemo(
     () =>
@@ -86,7 +113,7 @@ export default function App() {
   async function registrarUso(t, m) {
     const novoAtual = Number(t.nr_metragem_atual) - m;
     const ok = await salvar(
-      { ...t, nr_metragem_atual: novoAtual },
+      { ...t, nr_metragem_atual: novoAtual, tp_movimentacao: 'USO' },
       t.cd_tecido,
       `Uso registrado: ${metros(m)} de ${t.nm_tecido}.`
     );
@@ -101,6 +128,7 @@ export default function App() {
         ...t,
         nr_metragem_atual: Number(t.nr_metragem_atual) + m,
         nr_metragem_inicial: Number(t.nr_metragem_inicial) + m,
+        tp_movimentacao: 'REPOSICAO',
       },
       t.cd_tecido,
       `${metros(m)} adicionados em ${t.nm_tecido}.`
@@ -132,85 +160,95 @@ export default function App() {
             {qtdAcabando > 0 && ` · ${qtdAcabando} acabando`}
           </p>
         </div>
-        <button className="btn principal" onClick={() => setModal({ tipo: 'tecido' })}>
-          Novo tecido
-        </button>
+        <div className="acoes">
+          <button className="btn" onClick={() => { setFiltroHist(''); setTela(tela === 'estoque' ? 'historico' : 'estoque'); }}>
+            {tela === 'estoque' ? 'Ver histórico' : 'Voltar ao estoque'}
+          </button>
+          <button className="btn principal" onClick={() => setModal({ tipo: 'tecido' })}>Novo tecido</button>
+        </div>
       </header>
 
-      <div className="filtros">
-        <input
-          type="search"
-          placeholder="Buscar tecido"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-        />
-        <label className="check">
-          <input type="checkbox" checked={soAcabando} onChange={(e) => setSoAcabando(e.target.checked)} />
-          Só os que estão acabando
-        </label>
-      </div>
+      {tela === 'historico' ? (
+        <Historico tecidos={tecidos} tecidoId={filtroHist} onTecido={setFiltroHist} />
+      ) : (
+        <>
+          <div className="filtros">
+            <input
+              type="search"
+              placeholder="Buscar tecido"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+            <label className="check">
+              <input type="checkbox" checked={soAcabando} onChange={(e) => setSoAcabando(e.target.checked)} />
+              Só os que estão acabando
+            </label>
+          </div>
 
-      {erroCarga && (
-        <div className="falha" role="alert">
-          <p>{erroCarga}</p>
-          <button className="btn" onClick={() => { setCarregando(true); carregar(); }}>Tentar de novo</button>
-        </div>
+          {erroCarga && (
+            <div className="falha" role="alert">
+              <p>{erroCarga}</p>
+              <button className="btn" onClick={() => { setCarregando(true); carregar(); }}>Tentar de novo</button>
+            </div>
+          )}
+          {carregando && <p className="vazio">Carregando tecidos…</p>}
+          {!carregando && !erroCarga && lista.length === 0 && (
+            <p className="vazio">
+              {tecidos.length === 0
+                ? 'Nenhum tecido cadastrado. Clique em "Novo tecido" para começar.'
+                : soAcabando
+                  ? 'Nenhum tecido está no estoque mínimo.'
+                  : 'Nenhum tecido encontrado com essa busca.'}
+            </p>
+          )}
+
+          <div className="grade">
+            {lista.map((t) => {
+              const p = pct(t);
+              const gasto = Number(t.nr_metragem_inicial) - Number(t.nr_metragem_atual);
+              const marcaMin = minimo(t) > 0 && Number(t.nr_metragem_inicial) > 0
+                ? Math.min(100, (minimo(t) / t.nr_metragem_inicial) * 100)
+                : null;
+              return (
+                <article className="tecido" key={t.cd_tecido}>
+                  <div className="cab">
+                    <span className="amostra" style={{ background: t.ds_cor || '#23224a' }} />
+                    <h2>{t.nm_tecido}</h2>
+                    {acabando(t) && <span className="aviso">Acabando</span>}
+                  </div>
+
+                  <div className="fita" role="img" aria-label={`${Math.round(p)}% restante`}>
+                    <div className="fita-fill" style={{ width: `${p}%`, background: t.ds_cor || '#23224a' }} />
+                    {marcaMin !== null && <span className="marca" style={{ left: `${marcaMin}%` }} title="Estoque mínimo" />}
+                  </div>
+                  <div className="fita-legenda">
+                    <strong>{metros(t.nr_metragem_atual)}</strong>
+                    <span>de {metros(t.nr_metragem_inicial)}</span>
+                  </div>
+                  <p className="minimo">
+                    {minimo(t) > 0 ? `Estoque mínimo: ${metros(minimo(t))}` : 'Sem estoque mínimo definido'}
+                  </p>
+
+                  <dl className="dados">
+                    <div><dt>Preço por metro</dt><dd>{brl(t.vl_metro)}</dd></div>
+                    <div><dt>Restante vale</dt><dd>{brl(t.nr_metragem_atual * t.vl_metro)}</dd></div>
+                    <div><dt>Já usado</dt><dd>{metros(gasto)}</dd></div>
+                    <div><dt>Gasto até agora</dt><dd>{brl(gasto * t.vl_metro)}</dd></div>
+                  </dl>
+
+                  <div className="acoes">
+                    <button className="btn" onClick={() => setModal({ tipo: 'uso', tecido: t })}>Registrar uso</button>
+                    <button className="btn" onClick={() => setModal({ tipo: 'repor', tecido: t })}>Repor</button>
+                    <button className="btn leve" onClick={() => setModal({ tipo: 'tecido', tecido: t })}>Editar</button>
+                    <button className="btn leve" onClick={() => { setFiltroHist(t.cd_tecido); setTela('historico'); }}>Histórico</button>
+                    <button className="btn leve perigo" onClick={() => setExcluindo(t)}>Excluir</button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
       )}
-      {carregando && <p className="vazio">Carregando tecidos…</p>}
-      {!carregando && !erroCarga && lista.length === 0 && (
-        <p className="vazio">
-          {tecidos.length === 0
-            ? 'Nenhum tecido cadastrado. Clique em "Novo tecido" para começar.'
-            : soAcabando
-              ? 'Nenhum tecido está no estoque mínimo.'
-              : 'Nenhum tecido encontrado com essa busca.'}
-        </p>
-      )}
-
-      <div className="grade">
-        {lista.map((t) => {
-          const p = pct(t);
-          const gasto = Number(t.nr_metragem_inicial) - Number(t.nr_metragem_atual);
-          const marcaMin = minimo(t) > 0 && Number(t.nr_metragem_inicial) > 0
-            ? Math.min(100, (minimo(t) / t.nr_metragem_inicial) * 100)
-            : null;
-          return (
-            <article className="tecido" key={t.cd_tecido}>
-              <div className="cab">
-                <span className="amostra" style={{ background: t.ds_cor || '#23224a' }} />
-                <h2>{t.nm_tecido}</h2>
-                {acabando(t) && <span className="aviso">Acabando</span>}
-              </div>
-
-              <div className="fita" role="img" aria-label={`${Math.round(p)}% restante`}>
-                <div className="fita-fill" style={{ width: `${p}%`, background: t.ds_cor || '#23224a' }} />
-                {marcaMin !== null && <span className="marca" style={{ left: `${marcaMin}%` }} title="Estoque mínimo" />}
-              </div>
-              <div className="fita-legenda">
-                <strong>{metros(t.nr_metragem_atual)}</strong>
-                <span>de {metros(t.nr_metragem_inicial)}</span>
-              </div>
-              <p className="minimo">
-                {minimo(t) > 0 ? `Estoque mínimo: ${metros(minimo(t))}` : 'Sem estoque mínimo definido'}
-              </p>
-
-              <dl className="dados">
-                <div><dt>Preço por metro</dt><dd>{brl(t.vl_metro)}</dd></div>
-                <div><dt>Restante vale</dt><dd>{brl(t.nr_metragem_atual * t.vl_metro)}</dd></div>
-                <div><dt>Já usado</dt><dd>{metros(gasto)}</dd></div>
-                <div><dt>Gasto até agora</dt><dd>{brl(gasto * t.vl_metro)}</dd></div>
-              </dl>
-
-              <div className="acoes">
-                <button className="btn" onClick={() => setModal({ tipo: 'uso', tecido: t })}>Registrar uso</button>
-                <button className="btn" onClick={() => setModal({ tipo: 'repor', tecido: t })}>Repor</button>
-                <button className="btn leve" onClick={() => setModal({ tipo: 'tecido', tecido: t })}>Editar</button>
-                <button className="btn leve perigo" onClick={() => setExcluindo(t)}>Excluir</button>
-              </div>
-            </article>
-          );
-        })}
-      </div>
 
       {modal?.tipo === 'tecido' && (
         <FormTecido tecido={modal.tecido} onSalvar={salvarForm} onFechar={() => setModal(null)} />
@@ -342,6 +380,60 @@ function FormMetros({ titulo, rotulo, max, acao, onConfirmar, onFechar }) {
   );
 }
 
+function Historico({ tecidos, tecidoId, onTecido }) {
+  const [movs, setMovs] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    setCarregando(true);
+    api(tecidoId ? `${API_MOV}?cd_tecido=${tecidoId}` : API_MOV)
+      .then((d) => { setMovs(d); setErro(''); })
+      .catch((err) => setErro(textoDoErro(err, 'Não foi possível carregar o histórico.')))
+      .finally(() => setCarregando(false));
+  }, [tecidoId]);
+
+  return (
+    <section>
+      <div className="filtros">
+        <select className="seletor" value={tecidoId} onChange={(e) => onTecido(e.target.value)}>
+          <option value="">Todos os tecidos</option>
+          {tecidos.map((t) => (
+            <option key={t.cd_tecido} value={t.cd_tecido}>{t.nm_tecido}</option>
+          ))}
+        </select>
+      </div>
+
+      {erro && <div className="falha" role="alert"><p>{erro}</p></div>}
+      {carregando && <p className="vazio">Carregando histórico…</p>}
+      {!carregando && !erro && movs.length === 0 && (
+        <p className="vazio">Nenhuma movimentação registrada ainda.</p>
+      )}
+
+      <ul className="historico">
+        {movs.map((m) => (
+          <li key={m.cd_movimentacao} className="mov">
+            <div className="mov-info">
+              <span className={`tipo ${m.tp_movimentacao.toLowerCase()}`}>{ROTULO[m.tp_movimentacao]}</span>
+              <strong>{m.nm_tecido}</strong>
+              <span className="mov-data">{dataHora(m.dt_movimentacao)}</span>
+            </div>
+            <div className="mov-nums">
+              <span className={m.nr_metros < 0 ? 'neg' : 'pos'}>
+                {m.nr_metros > 0 ? '+' : ''}{metros(m.nr_metros)}
+              </span>
+              <span className="mov-data">
+                {metros(m.nr_metragem_anterior)} → {metros(m.nr_metragem_posterior)}
+                {m.nr_metros !== 0 && ` · ${brl(Math.abs(m.nr_metros) * m.vl_metro)}`}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap');
 .ateliê{--tinta:#23224a;--papel:#eeedf3;--cartao:#fbfbfd;--linha:#d6d4e0;--suave:#6b6a85;--alerta:#b3261e;
@@ -398,5 +490,18 @@ h1{margin:0;font-size:clamp(32px,6vw,52px);font-weight:800;letter-spacing:-.03em
   border-radius:8px;font:inherit;font-weight:400;background:#fff;color:inherit}
 .modal input[type=color]{display:block;margin-top:6px;width:56px;height:36px;border:1px solid var(--linha);border-radius:8px;padding:2px;background:#fff}
 .dica{display:block;margin-top:6px;font-size:13px;font-weight:400;color:var(--suave);line-height:1.4}
+.seletor{padding:10px 14px;border:1px solid var(--linha);border-radius:8px;background:var(--cartao);font:inherit;color:inherit}
+.historico{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.mov{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
+  background:var(--cartao);border:1px solid var(--linha);border-radius:10px;padding:14px 18px}
+.mov-info,.mov-nums{display:flex;flex-direction:column;gap:4px}
+.mov-nums{align-items:flex-end;font-size:18px;font-weight:800}
+.mov-data{font-size:13px;font-weight:400;color:var(--suave)}
+.tipo{align-self:flex-start;font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;border:1px solid var(--linha);color:var(--suave)}
+.tipo.uso{color:#8a5a00;border-color:#8a5a00}
+.tipo.reposicao{color:#1b6b3a;border-color:#1b6b3a}
+.tipo.exclusao{color:var(--alerta);border-color:var(--alerta)}
+.neg{color:var(--alerta)}
+.pos{color:#1b6b3a}
 @media (prefers-reduced-motion:reduce){.fita-fill{transition:none}}
 `;

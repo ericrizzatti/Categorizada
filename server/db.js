@@ -5,9 +5,9 @@ const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
   database: 'Catalogorizada',
-  password: 'vivencias', // A tua senha do PostgreSQL
+  password: 'vivencias',
   port: 5432,
-  client_encoding: 'UTF8' // 💡 FORÇA A CONEXÃO EM UTF-8
+  client_encoding: 'UTF8' 
 });
 
 export default pool;
