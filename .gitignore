@@ -22,3 +22,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Perfil do navegador usado pelo modo aplicativo
+.perfil-app/
