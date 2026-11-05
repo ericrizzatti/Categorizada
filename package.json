@@ -17,6 +17,7 @@
     "pg": "^8.23.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.5",
     "sonner": "^2.0.8"
   },
   "devDependencies": {

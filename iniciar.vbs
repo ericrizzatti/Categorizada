@@ -41,6 +41,32 @@ Function AchaNavegador()
   Next
 End Function
 
+' Janela de abertura (se der qualquer problema, segue sem ela)
+Sub AbreSplash()
+  On Error Resume Next
+  If fso.FileExists(pasta & "\abrindo.ps1") Then
+    ' Apaga um sinal de fechamento antigo, se tiver sobrado
+    If fso.FileExists(sh.ExpandEnvironmentStrings("%TEMP%") & "\meustecidos_fechar.flag") Then
+      fso.DeleteFile sh.ExpandEnvironmentStrings("%TEMP%") & "\meustecidos_fechar.flag", True
+    End If
+    sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & pasta & "\abrindo.ps1""", 0, False
+  End If
+  On Error GoTo 0
+End Sub
+
+' Pede para a telinha fechar (usado quando algo da errado)
+Sub FechaSplash()
+  On Error Resume Next
+  fso.CreateTextFile(sh.ExpandEnvironmentStrings("%TEMP%") & "\meustecidos_fechar.flag", True).Close
+  On Error GoTo 0
+End Sub
+
+Sub FechaSplashDepois()
+  On Error Resume Next
+  sh.Run "cmd /c ping -n 6 127.0.0.1 >nul & type nul > """ & sh.ExpandEnvironmentStrings("%TEMP%") & "\meustecidos_fechar.flag""", 0, False
+  On Error GoTo 0
+End Sub
+
 ' Primeira vez: instala as dependencias (aqui a janela aparece, para ver o progresso)
 If Not fso.FolderExists(pasta & "\node_modules") Then
   MsgBox "Primeira vez: vou instalar as dependencias. Pode demorar um pouco.", 64, "Meus Tecidos"
@@ -49,6 +75,8 @@ If Not fso.FolderExists(pasta & "\node_modules") Then
     WScript.Quit
   End If
 End If
+
+AbreSplash
 
 ' Se o sistema ainda nao esta rodando, liga tudo escondido
 If Not Responde("http://localhost:3001/api/estado") Then
@@ -64,6 +92,7 @@ For i = 1 To 80
   WScript.Sleep 500
 Next
 If Not Responde(url) Then
+  FechaSplash
   MsgBox "O site nao iniciou. Veja os arquivos api.log e site.log na pasta do projeto.", 16, "Meus Tecidos"
   WScript.Quit
 End If
@@ -71,11 +100,13 @@ End If
 navegador = AchaNavegador()
 If navegador = "" Then
   ' Sem Edge/Chrome: abre no navegador padrao (o ping do servidor encerra depois)
+  FechaSplashDepois
   sh.Run url
   WScript.Quit
 End If
 
 ' Abre a janela de aplicativo e espera ela ser fechada
+FechaSplashDepois
 inicio = Timer
 sh.Run """" & navegador & """ --app=" & url & " --user-data-dir=""" & perfil & """ --window-size=1200,800 --no-first-run --no-default-browser-check", 1, True
 

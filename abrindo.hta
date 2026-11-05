@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="x-ua-compatible" content="ie=edge">
+<meta charset="utf-8">
+<title>Meus Tecidos</title>
+<hta:application id="splash" applicationname="Meus Tecidos"
+  icon="C:\Faculdade\Categorizada\public\logo.ico"
+  border="none" caption="no" showintaskbar="no" scroll="no"
+  singleinstance="yes" sysmenu="no" contextmenu="no" selection="no" />
+<style>
+  html, body { margin: 0; height: 100%; cursor: progress; }
+  body {
+    background: #eeedf3; color: #23224a; border: 1px solid #b9b7cc;
+    font-family: "Segoe UI", Arial, sans-serif; text-align: center;
+    box-sizing: border-box; padding-top: 38px; overflow: hidden;
+  }
+  h1 { font-size: 22px; margin: 14px 0 4px; }
+  p { margin: 0; font-size: 13px; color: #6b6a85; }
+  .trilho { position: relative; width: 220px; height: 6px; margin: 22px auto 0;
+            background: #d6d4e0; border-radius: 3px; overflow: hidden; }
+  .corre { position: absolute; top: 0; width: 40%; height: 6px; background: #23224a;
+           border-radius: 3px; animation: corre 1.3s ease-in-out infinite; }
+  @keyframes corre { 0% { left: -40%; } 100% { left: 100%; } }
+</style>
+</head>
+<body>
+  <svg width="72" height="72" viewBox="0 0 100 100">
+    <rect width="100" height="100" rx="22" fill="#23224a"/>
+    <rect x="25" y="17" width="50" height="11" rx="4" fill="#eeedf3"/>
+    <rect x="25" y="73" width="50" height="11" rx="4" fill="#eeedf3"/>
+    <rect x="31" y="28" width="38" height="45" fill="#7f7cd6"/>
+    <line x1="31" y1="38" x2="69" y2="40" stroke="#625fbe" stroke-width="2"/>
+    <line x1="31" y1="48" x2="69" y2="50" stroke="#625fbe" stroke-width="2"/>
+    <line x1="31" y1="58" x2="69" y2="60" stroke="#625fbe" stroke-width="2"/>
+    <line x1="76" y1="22" x2="55" y2="44" stroke="#ffffff" stroke-width="2"/>
+  </svg>
+  <h1>Meus Tecidos</h1>
+  <p id="msg">Iniciando o sistema, aguarde...</p>
+  <div class="trilho"><div class="corre"></div></div>
+
+<script>
+  var SITE = "http://localhost:5173";
+  var pronto = false;
+
+  window.resizeTo(420, 270);
+  window.moveTo((screen.width - 420) / 2, (screen.height - 270) / 2);
+
+  function fechar() { window.close(); }
+
+  function checar() {
+    if (pronto) { return; }
+    try {
+      var x = new ActiveXObject("MSXML2.XMLHTTP");
+      x.open("GET", SITE + "/?t=" + new Date().getTime(), true);
+      x.onreadystatechange = function () {
+        if (x.readyState != 4) { return; }
+        var ok = false;
+        try { ok = (x.status == 200); } catch (e) { ok = false; }
+        if (ok && !pronto) {
+          pronto = true;
+          document.getElementById("msg").innerHTML = "Abrindo a janela...";
+          setTimeout(fechar, 5000);
+        } else if (!pronto) {
+          setTimeout(checar, 700);
+        }
+      };
+      x.send();
+    } catch (e) {
+      setTimeout(checar, 700);
+    }
+  }
+
+  setTimeout(fechar, 30000); // seguranca: nunca fica aberta para sempre
+  checar();
+</script>
+</body>
+</html>
