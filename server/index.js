@@ -27,14 +27,22 @@ let jaConectou = false; // não desliga antes de alguém abrir o site
 let timerDesligar = null;
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PARAR = path.join(RAIZ, 'Inicializar', 'parar.bat');
+const PARAR = path.join(RAIZ, 'Inicializar', 'parar.vbs');
 const FLAG_SPLASH = path.join(os.tmpdir(), 'meustecidos_fechar.flag');
+
+function dispararParar() {
+  spawn('wscript', ['//B', '//Nologo', PARAR], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  }).unref();
+}
 
 function encerrar() {
   timerDesligar = null;
   if (abas.size > 0) return;
   console.log('Navegador fechado. Encerrando...');
-  spawn('cmd', ['/c', PARAR], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  dispararParar();
   setTimeout(() => process.exit(0), 5000);
 }
 
@@ -338,7 +346,7 @@ app.post('/api/sair', (req, res) => {
   res.status(204).end();
   console.log('Encerramento pedido pelo usuário.');
   setTimeout(() => {
-    spawn('cmd', ['/c', PARAR], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    dispararParar();
     setTimeout(() => process.exit(0), 3000);
   }, 300);
 });

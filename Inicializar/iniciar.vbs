@@ -68,26 +68,33 @@ Sub FechaSplash()
 End Sub
 
 ' Primeira vez: instala as dependencias
+ApagaFlag
+AbreSplash   ' <- primeiro de tudo: a telinha aparece já
+
+' Primeira vez: instala as dependencias
 If Not fso.FolderExists(pasta & "\node_modules") Then
+  FechaSplash                       ' fecha o splash para não cobrir a caixa de aviso
+  WScript.Sleep 800
+  ApagaFlag
   MsgBox "Primeira vez: vou instalar as dependencias. Pode demorar um pouco.", 64, "Meus Tecidos"
   If sh.Run("cmd /c npm install", 1, True) <> 0 Then
     MsgBox "Erro na instalacao. Abra o cmd na pasta do projeto e rode npm install para ver o erro.", 16, "Meus Tecidos"
     WScript.Quit
   End If
+  AbreSplash                        ' reabre para o restante da inicialização
 End If
 
-ApagaFlag
-
-' Liga servidor e site ANTES do splash, para trabalharem em paralelo.
-' O Vite e chamado direto pelo node (sem passar pelo npm, que e lento).
+' Liga servidor e site (cada um separado)
 If Not Responde("http://localhost:3001/api/estado") Then
   iniciou = True
   sh.Environment("Process")("AUTO_ENCERRAR") = "1"
   sh.Run "cmd /c node server/index.js > """ & logs & "\api.log"" 2>&1", 0, False
+End If
+If Not Responde(url) Then
+  iniciou = True
   sh.Run "cmd /c node node_modules/vite/bin/vite.js --strictPort > """ & logs & "\site.log"" 2>&1", 0, False
 End If
 
-AbreSplash
 
 ' 1) Espera o back (e o banco) ficarem prontos (ate uns 30 segundos)
 For i = 1 To 150
@@ -96,19 +103,30 @@ For i = 1 To 150
 Next
 If Not Responde(urlApi) Then
   FechaSplash
-  If iniciou Then sh.Run "cmd /c """ & scriptDir & "\parar.bat""", 0, True
+  If iniciou Then sh.Run "cmd /c """ & scriptDir & "\parar.vbs""", 0, True
   MsgBox "O servidor ou o banco de dados nao respondeu. Veja inicializacao\logs\api.log e confira se o PostgreSQL esta rodando.", 16, "Meus Tecidos"
   WScript.Quit
 End If
 
 ' 2) Espera o site (ate uns 40 segundos)
-For i = 1 To 200
+For i = 1 To 100
   If Responde(url) Then Exit For
-  WScript.Sleep 200
+  WScript.Sleep 100
 Next
 If Not Responde(url) Then
   FechaSplash
-  If iniciou Then sh.Run "cmd /c """ & scriptDir & "\parar.bat""", 0, True
+  If iniciou Then sh.Run "cmd /c """ & scriptDir & "\parar.vbs""", 0, True
   MsgBox "O site nao iniciou. Veja os arquivos em inicializacao\logs.", 16, "Meus Tecidos"
   WScript.Quit
+End If
+
+' 3) Abre o site como aplicativo (sem barra de abas/endereço)
+navegador = AchaNavegador()
+If navegador <> "" Then
+  sh.Run """" & navegador & """ --app=" & url & _
+         " --user-data-dir=""" & perfil & """" & _
+         " --no-first-run --no-default-browser-check --window-size=1280,800", 1, False
+Else
+  ' Nenhum Edge/Chrome encontrado: abre no navegador padrão
+  sh.Run url, 1, False
 End If
