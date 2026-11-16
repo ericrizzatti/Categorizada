@@ -2,11 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import { spawn } from 'node:child_process';
 import pool from './db.js';
+import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Forçar codificação UTF-8 em todas as respostas HTTP
 app.use((req, res, next) => {
@@ -22,11 +26,15 @@ const abas = new Map(); // id da aba -> última vez que avisou
 let jaConectou = false; // não desliga antes de alguém abrir o site
 let timerDesligar = null;
 
+const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PARAR = path.join(RAIZ, 'Inicializar', 'parar.bat');
+const FLAG_SPLASH = path.join(os.tmpdir(), 'meustecidos_fechar.flag');
+
 function encerrar() {
   timerDesligar = null;
   if (abas.size > 0) return;
   console.log('Navegador fechado. Encerrando...');
-  spawn('cmd', ['/c', 'parar.bat'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  spawn('cmd', ['/c', PARAR], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
   setTimeout(() => process.exit(0), 5000);
 }
 
@@ -41,10 +49,14 @@ function verificarAbas() {
 }
 
 app.post('/api/ping', (req, res) => {
+  const id = String(req.query.id);
+  if (!abas.has(id)) {
+    console.log(`Aba conectada: ${id}`);
+    // Avisa a telinha de abertura: o app já está na tela
+    try { fs.writeFileSync(FLAG_SPLASH, ''); } catch { /* sem problema */ }
+  }
+  abas.set(id, Date.now());
   if (AUTO_ENCERRAR) {
-    const id = String(req.query.id);
-    if (!abas.has(id)) console.log(`Aba conectada: ${id}`);
-    abas.set(id, Date.now());
     jaConectou = true;
     if (timerDesligar) { clearTimeout(timerDesligar); timerDesligar = null; }
   }
@@ -68,7 +80,17 @@ app.get('/api/estado', (req, res) => {
   });
 });
 
-if (AUTO_ENCERRAR) setInterval(verificarAbas, 30000);
+// Usada pelo iniciar.vbs: só responde 200 quando o servidor E o banco estão ok
+app.get('/api/pronto', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.status(200).json({ ok: true });
+  } catch {
+    res.status(503).json({ ok: false });
+  }
+});
+
+setInterval(verificarAbas, 30000);
 
 // Colunas devolvidas ao front. O ::float8 garante que o pg devolva número
 // (por padrão ele devolve NUMERIC como texto).
@@ -250,6 +272,76 @@ app.get('/api/movimentacoes', async (req, res) => {
   }
 });
 
+// ---- Backup e importação ----
+const COLS_TECIDO = ['cd_tecido', 'nm_tecido', 'ds_cor', 'vl_metro',
+  'nr_metragem_inicial', 'nr_metragem_atual', 'nr_metragem_minima'];
+const COLS_MOV = ['cd_movimentacao', 'cd_tecido', 'nm_tecido', 'tp_movimentacao', 'nr_metros',
+  'nr_metragem_anterior', 'nr_metragem_posterior', 'vl_metro', 'dt_movimentacao'];
+
+async function inserirLinhas(client, tabela, colunas, linhas) {
+  const marcas = colunas.map((_, i) => `$${i + 1}`).join(', ');
+  const sql = `INSERT INTO ${tabela} (${colunas.join(', ')}) OVERRIDING SYSTEM VALUE VALUES (${marcas});`;
+  for (const l of linhas) {
+    await client.query(sql, colunas.map((c) => l[c] ?? null));
+  }
+}
+
+// Exporta todas as tabelas
+app.get('/api/backup', async (req, res) => {
+  try {
+    const tecidos = await pool.query(`SELECT ${COLS_TECIDO.join(', ')} FROM tecido ORDER BY cd_tecido;`);
+    const movs = await pool.query(`SELECT ${COLS_MOV.join(', ')} FROM movimentacao ORDER BY cd_movimentacao;`);
+    res.json({
+      app: 'meus-tecidos',
+      versao: 1,
+      geradoEm: new Date().toISOString(),
+      tabelas: { tecido: tecidos.rows, movimentacao: movs.rows },
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: 'Erro ao gerar o backup' });
+  }
+});
+
+// Importa um backup: SUBSTITUI todo o conteúdo atual (tudo ou nada)
+app.post('/api/importar', async (req, res) => {
+  const t = req.body?.tabelas;
+  const valido = req.body?.app === 'meus-tecidos'
+    && Array.isArray(t?.tecido) && Array.isArray(t?.movimentacao)
+    && [...t.tecido, ...t.movimentacao].every((l) => l && typeof l === 'object');
+  if (!valido) return res.status(400).json({ error: 'Arquivo de backup inválido.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('TRUNCATE movimentacao, tecido RESTART IDENTITY;');
+    await inserirLinhas(client, 'tecido', COLS_TECIDO, t.tecido);
+    await inserirLinhas(client, 'movimentacao', COLS_MOV, t.movimentacao);
+    // Reajusta os contadores de ID para continuar depois do maior importado
+    await client.query(`SELECT setval(pg_get_serial_sequence('tecido','cd_tecido'),
+      COALESCE((SELECT MAX(cd_tecido) FROM tecido), 0) + 1, false);`);
+    await client.query(`SELECT setval(pg_get_serial_sequence('movimentacao','cd_movimentacao'),
+      COALESCE((SELECT MAX(cd_movimentacao) FROM movimentacao), 0) + 1, false);`);
+    await client.query('COMMIT');
+    res.json({ tecidos: t.tecido.length, movimentacoes: t.movimentacao.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err.message);
+    res.status(500).json({ error: 'Falha ao importar. Nada foi alterado no banco.' });
+  } finally {
+    client.release();
+  }
+});
+
+// Botão "Sair do sistema": responde primeiro e desliga logo depois
+app.post('/api/sair', (req, res) => {
+  res.status(204).end();
+  console.log('Encerramento pedido pelo usuário.');
+  setTimeout(() => {
+    spawn('cmd', ['/c', PARAR], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    setTimeout(() => process.exit(0), 3000);
+  }, 300);
+});
 const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor Backend rodando na porta ${PORT}`);

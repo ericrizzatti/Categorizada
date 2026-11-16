@@ -8,5 +8,8 @@ export default defineConfig({
     watch: {
       ignored: ['**/.perfil-app/**', '**/*.log'],
     },
+    warmup: {
+      clientFiles: ['./src/main.jsx', './src/app.jsx', './src/paginas/*.jsx'],
+    },
   },
 })

@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect ,useState} from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { API_BASE } from './lib.js';
 import { css } from './estilos.js';
 import Estoque from './paginas/Estoque.jsx';
 import Movimentacoes from './paginas/Movimentacoes.jsx';
+import { MenuConfig } from './componentes.jsx';
 
 const ID_ABA = Math.random().toString(36).slice(2); // identifica esta aba para o servidor
 
@@ -13,6 +14,7 @@ const ID_ABA = Math.random().toString(36).slice(2); // identifica esta aba para 
 export default function App() {
   // Avisa o servidor que esta aba está aberta (e quando fecha),
   // para ele se encerrar sozinho quando a última aba for fechada
+  const [versao, setVersao] = useState(0); // muda depois de importar, para recarregar a tela
   useEffect(() => {
     const ping = () =>
       fetch(`${API_BASE}/ping?id=${ID_ABA}`, { method: 'POST', keepalive: true }).catch(() => {});
@@ -36,13 +38,16 @@ export default function App() {
 
       <header className="topo">
         <h1>Meus tecidos</h1>
-        <nav className="abas" aria-label="Seções">
-          <NavLink to="/" end>Estoque</NavLink>
-          <NavLink to="/movimentacoes">Movimentações</NavLink>
-        </nav>
+        <div className="topo-dir">
+          <nav className="abas" aria-label="Seções">
+            <NavLink to="/" end>Estoque</NavLink>
+            <NavLink to="/movimentacoes">Movimentações</NavLink>
+          </nav>
+          <MenuConfig onImportado={() => setVersao((v) => v + 1)} />
+        </div>
       </header>
 
-      <Routes>
+      <Routes key={versao}>
         <Route path="/" element={<Estoque />} />
         <Route path="/movimentacoes" element={<Movimentacoes />} />
         <Route path="*" element={<Navigate to="/" replace />} />

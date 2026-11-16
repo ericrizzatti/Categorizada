@@ -110,7 +110,7 @@ try {
 
   # Confere se deve fechar (sinal do iniciar.vbs ou tempo limite)
   $checa = New-Object System.Windows.Forms.Timer
-  $checa.Interval = 300
+  $checa.Interval = 100
   $checa.Add_Tick({
     try {
       if ((Test-Path $flag) -or ((Get-Date) -gt $limite)) { $script:form.Close() }
