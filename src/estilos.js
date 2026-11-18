@@ -416,6 +416,84 @@ h1 {
   font: inherit;
   font-weight: 400;
 }
+  .opcoes {
+  display: grid;
+  gap: 10px;
+}
+
+.modal label.opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--linha);
+  border-radius: 10px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.modal label.opcao.marcada {
+  border-color: var(--tinta);
+  background: #f3f2f8;
+}
+
+.modal label.opcao.desativada {
+  background: #f3f2f8;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modal label.opcao input[type=radio] {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--tinta);
+  cursor: inherit;
+}
+
+.opcao strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.opcao small {
+  display: block;
+  margin-top: 2px;
+  color: var(--suave);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.aviso-drive {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f3f2f8;
+  color: var(--suave);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.aviso-drive strong {
+  color: var(--tinta);
+}
+
+.btn.link,
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tinta);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 .dica {
   display: block;

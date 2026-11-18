@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { API_IMPORTAR, API_SAIR, api, baixarBackup, dataHora, metros, textoDoErro } from './lib.js';
+import { API_IMPORTAR,API_DRIVE, API_SAIR, api, baixarBackup, dataHora, metros, textoDoErro } from './lib.js';
 
 export function Modal({ titulo, onFechar, children }) {
   useEffect(() => {
@@ -289,6 +289,12 @@ const IconeSair = () => (
   </svg>
 );
 
+const IconeNuvem = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" {...icone}>
+  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+  </svg>
+);
+
 export function MenuConfig({ onImportado }) {
   const [aberto, setAberto] = useState(false);
   const [arquivo, setArquivo] = useState(null); // { nome, dados }
@@ -298,6 +304,27 @@ export function MenuConfig({ onImportado }) {
   const [encerrado, setEncerrado] = useState(false);
   const raiz = useRef(null);
   const entrada = useRef(null);
+  const [drive, setDrive] = useState(null);          // { configurado, conectado, email }
+  const [modalBackup, setModalBackup] = useState(false);
+  const [enviandoBackup, setEnviandoBackup] = useState(false);
+  const [modalDrive, setModalDrive] = useState(false);
+  const [destino, setDestino] = useState('local'); // 'local' | 'drive'
+
+  const carregarDrive = () =>
+  api(`${API_DRIVE}/status`).then(setDrive).catch(() => setDrive(null));
+
+  useEffect(() => { carregarDrive(); }, []);
+
+  // Volta do login do Google: /?drive=ok ou /?drive=erro
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get('drive');
+    if (!r) return;
+    if (r === 'ok') toast.success('Google Drive conectado.');
+    else toast.error('Não foi possível conectar ao Google Drive.');
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
+
+
 
   // Fecha o menu ao clicar fora ou apertar Esc
   useEffect(() => {
@@ -312,15 +339,68 @@ export function MenuConfig({ onImportado }) {
     };
   }, [aberto]);
 
-  async function exportar() {
-    setAberto(false);
-    try {
-      await baixarBackup();
+function abrirBackup() {
+  setAberto(false);
+  setDestino('local');
+  setModalBackup(true);
+  carregarDrive()            // sem Drive conectado, comporta-se como antes
+}
+
+async function confirmarBackup() {
+  setEnviandoBackup(true);
+  try {
+    if (destino === 'drive') {
+      const r = await api(`${API_DRIVE}/backup`, { method: 'POST', body: JSON.stringify({ tipo: 'manual' }) });
+      toast.success(`Backup enviado ao Google Drive: ${r.nome}`);
+    } else {
+      await baixarBackup('manual');
       toast.success('Backup gerado. Procure o arquivo na pasta Downloads.');
-    } catch (err) {
-      toast.error(textoDoErro(err, 'Não foi possível gerar o backup.'));
     }
+    setModalBackup(false);
+  } catch (err) {
+    toast.error(textoDoErro(err, 'Não foi possível fazer o backup.'));
+  } finally {
+    setEnviandoBackup(false);
   }
+}
+
+
+async function confirmarBackup() {
+  setEnviandoBackup(true);
+  try {
+    if (destino === 'drive') {
+      const r = await api(`${API_DRIVE}/backup`, { method: 'POST', body: JSON.stringify({ tipo: 'manual' }) });
+      toast.success(`Backup enviado ao Google Drive: ${r.nome}`);
+    } else {
+      await baixarBackup('manual');
+      toast.success('Backup gerado. Procure o arquivo na pasta Downloads.');
+    }
+    setModalBackup(false);
+  } catch (err) {
+    toast.error(textoDoErro(err, 'Não foi possível fazer o backup.'));
+  } finally {
+    setEnviandoBackup(false);
+  }
+}
+
+async function conectarDrive() {
+  try {
+    const { url } = await api(`${API_DRIVE}/conectar`);
+    window.location.href = url;
+  } catch (err) {
+    toast.error(textoDoErro(err, 'Não foi possível iniciar a conexão.'));
+  }
+}
+
+async function desconectarDrive() {
+  try {
+    await api(`${API_DRIVE}/desconectar`, { method: 'POST' });
+    await carregarDrive();
+    toast.success('Google Drive desconectado.');
+  } catch (err) {
+    toast.error(textoDoErro(err, 'Não foi possível desconectar.'));
+  }
+}
 
   function abrirSeletor() {
     setAberto(false);
@@ -344,7 +424,7 @@ export function MenuConfig({ onImportado }) {
   async function confirmarImportacao() {
     setImportando(true);
     try {
-      await baixarBackup(); // segurança: guarda o estado atual antes de substituir
+      await baixarBackup('seguranca'); // segurança: guarda o estado atual antes de substituir
       await api(API_IMPORTAR, { method: 'POST', body: JSON.stringify(arquivo.dados) });
       toast.success('Backup importado com sucesso.');
       setArquivo(null);
@@ -388,7 +468,7 @@ export function MenuConfig({ onImportado }) {
 
       {aberto && (
         <div className="menu" role="menu">
-          <button className="item" role="menuitem" onClick={exportar}>
+          <button className="item" role="menuitem" onClick={abrirBackup}>
             <span className="item-icone"><IconeBaixar /></span>
             <span className="item-texto">
               <strong>Fazer backup</strong>
@@ -400,6 +480,13 @@ export function MenuConfig({ onImportado }) {
             <span className="item-texto">
               <strong>Importar backup</strong>
               <small>Restaurar de um arquivo</small>
+            </span>
+          </button>
+          <button className="item" role="menuitem" onClick={() => { setAberto(false); setModalDrive(true); }}>
+            <span className="item-icone"><IconeNuvem /></span>
+            <span className="item-texto">
+              <strong>Google Drive</strong>
+              <small>{drive?.conectado ? `Conectado: ${drive.email}` : 'Não conectado'}</small>
             </span>
           </button>
           <hr className="menu-linha" />
@@ -456,6 +543,78 @@ export function MenuConfig({ onImportado }) {
           <p>Pode fechar esta janela.</p>
         </div>
       )}
+      {modalBackup && (() => {
+        const driveOk = Boolean(drive?.conectado);
+        return (
+          <Modal titulo="Fazer backup" onFechar={() => !enviandoBackup && setModalBackup(false)}>
+            <div className="opcoes">
+              <label className={`opcao${destino === 'local' ? ' marcada' : ''}`}>
+                <input
+                  type="radio"
+                  name="destino-backup"
+                  checked={destino === 'local'}
+                  onChange={() => setDestino('local')}
+                />
+                <span>
+                  <strong>Baixar no computador</strong>
+                  <small>Salva na pasta Downloads.</small>
+                </span>
+              </label>
+
+              <label className={`opcao${destino === 'drive' ? ' marcada' : ''}${driveOk ? '' : ' desativada'}`}>
+                <input
+                  type="radio"
+                  name="destino-backup"
+                  checked={destino === 'drive'}
+                  disabled={!driveOk}
+                  onChange={() => setDestino('drive')}
+                />
+                <span>
+                  <strong>Enviar para o Google Drive</strong>
+                  <small>{driveOk ? `Conta: ${drive.email}` : 'Indisponível: conta não conectada.'}</small>
+                </span>
+              </label>
+            </div>
+
+            {!driveOk && (
+              <p className="aviso-drive">
+                Para usar o Drive, conecte sua conta em <strong>Configurações (⚙) → Google Drive</strong>.{' '}
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => { setModalBackup(false); setModalDrive(true); }}
+                >
+                  Abrir agora
+                </button>
+              </p>
+            )}
+
+            <div className="acoes fim">
+              <button className="btn leve" disabled={enviandoBackup} onClick={() => setModalBackup(false)}>Cancelar</button>
+              <button className="btn principal" disabled={enviandoBackup} onClick={confirmarBackup} autoFocus>
+                {enviandoBackup ? 'Enviando…' : 'Fazer backup'}
+              </button>
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {modalDrive && (
+        <Modal titulo="Google Drive" onFechar={() => setModalDrive(false)}>
+          {drive?.conectado ? (
+            <p className="texto">Conectado como <strong>{drive.email}</strong>. Os backups vão para a pasta "Meus Tecidos - Backups".</p>
+          ) : (
+            <p className="texto">Conecte sua conta para poder enviar os backups direto para o Drive.</p>
+          )}
+          <div className="acoes fim">
+            <button className="btn leve" onClick={() => setModalDrive(false)}>Fechar</button>
+            {drive?.conectado
+              ? <button className="btn principal perigo" onClick={desconectarDrive}>Desconectar</button>
+              : <button className="btn principal" onClick={conectarDrive}>Conectar conta Google</button>}
+          </div>
+        </Modal>
+      )}
     </div>
+    
   );
 }

@@ -5,6 +5,7 @@ export const API_MOV = `${API_BASE}/movimentacoes`;
 export const API_BACKUP = `${API_BASE}/backup`;
 export const API_IMPORTAR = `${API_BASE}/importar`;
 export const API_SAIR = `${API_BASE}/sair`;
+export const API_DRIVE = `${API_BASE}/drive`;
 
 export const ROTULO = {
   CADASTRO: 'Cadastro',
@@ -35,17 +36,18 @@ export async function api(url = API, options) {
   return res.status === 204 ? null : res.json();
 }
 //Backup servidor
-export async function baixarBackup() {
+export async function baixarBackup(tipo = 'manual') {
   const res = await fetch(API_BACKUP);
   if (!res.ok) throw new Error('Falha ao gerar o backup.');
   const blob = await res.blob();
   const agora = new Date();
   const data = agora.toLocaleDateString('sv-SE'); // AAAA-MM-DD
   const hora = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+  const prefixo = tipo === 'seguranca' ? 'backup-seguranca-automatico' : 'backup-meus-tecidos';
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backup-meus-tecidos-${data}-${hora}.json`;
+  a.download = `${prefixo}-${data}-${hora}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();

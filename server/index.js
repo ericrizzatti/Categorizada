@@ -6,6 +6,8 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { criarDrive, armazemArquivo } from './drive.js';
+import { criarRotasDrive } from './rotasDrive.js';
 
 const app = express();
 
@@ -294,22 +296,34 @@ async function inserirLinhas(client, tabela, colunas, linhas) {
   }
 }
 
-// Exporta todas as tabelas
+async function gerarBackup() {
+  const tecidos = await pool.query(`SELECT ${COLS_TECIDO.join(', ')} FROM tecido ORDER BY cd_tecido;`);
+  const movs = await pool.query(`SELECT ${COLS_MOV.join(', ')} FROM movimentacao ORDER BY cd_movimentacao;`);
+  return {
+    app: 'meus-tecidos',
+    versao: 1,
+    geradoEm: new Date().toISOString(),
+    tabelas: { tecido: tecidos.rows, movimentacao: movs.rows },
+  };
+}
+
 app.get('/api/backup', async (req, res) => {
   try {
-    const tecidos = await pool.query(`SELECT ${COLS_TECIDO.join(', ')} FROM tecido ORDER BY cd_tecido;`);
-    const movs = await pool.query(`SELECT ${COLS_MOV.join(', ')} FROM movimentacao ORDER BY cd_movimentacao;`);
-    res.json({
-      app: 'meus-tecidos',
-      versao: 1,
-      geradoEm: new Date().toISOString(),
-      tabelas: { tecido: tecidos.rows, movimentacao: movs.rows },
-    });
+    res.json(await gerarBackup());
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ error: 'Erro ao gerar o backup' });
   }
 });
+
+// ---- Google Drive ----
+const drive = criarDrive({
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  redirectUri: 'http://localhost:3001/api/drive/callback',
+  armazem: armazemArquivo(path.join(RAIZ, 'server', 'drive-config.json')),
+});
+app.use('/api/drive', criarRotasDrive({ drive, gerarBackup, urlFront: 'http://localhost:5173' }));
 
 // Importa um backup: SUBSTITUI todo o conteúdo atual (tudo ou nada)
 app.post('/api/importar', async (req, res) => {
